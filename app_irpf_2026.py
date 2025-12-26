@@ -20,15 +20,19 @@ st.set_page_config(
 # ===============================
 st.markdown("""
 <style>
-h1, h2, h3 {
-    color: #b08d57;
-}
+h1, h2, h3 { color: #b08d57; }
 .resultado {
     background-color: #e6f4ea;
     padding: 15px;
     border-radius: 8px;
     border-left: 6px solid #1a7f37;
     font-size: 18px;
+}
+.comparacao {
+    background-color: #f0f0f0;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 15px;
 }
 .footer {
     margin-top: 40px;
@@ -42,11 +46,11 @@ h1, h2, h3 {
 """, unsafe_allow_html=True)
 
 # ===============================
-# TOPO COM LOGO
+# TOPO
 # ===============================
 st.image("logo_atual.png", width=280)
 st.markdown("""
-<h1>Cálculo IRPF Mensal – Regras 2026</h1>
+<h1>Cálculo IRPF Mensal – 2026</h1>
 <p><b>Atual Assessoria Contábil e Gerencial</b></p>
 <p>Lei 15.270/2025 • IN RFB 2.299/2025</p>
 """, unsafe_allow_html=True)
@@ -58,110 +62,92 @@ rendimento = st.number_input("Rendimento Bruto (R$)", min_value=0.0, value=6500.
 inss = st.number_input("INSS (R$)", min_value=0.0, value=700.0, step=50.0)
 dependentes = st.number_input("Número de dependentes", min_value=0, step=1)
 
-# ===============================
-# FUNÇÕES DE CÁLCULO
-# ===============================
 DEDUCAO_DEP = 189.59
 
+# ===============================
+# FUNÇÃO IR + ALÍQUOTA
+# ===============================
 def calcular_ir(base):
     if base <= 2259.20:
-        return 0.0
+        return 0.0, 0.0
     elif base <= 2826.65:
-        return base * 0.075 - 169.44
+        return base * 0.075 - 169.44, 7.5
     elif base <= 3751.05:
-        return base * 0.15 - 381.44
+        return base * 0.15 - 381.44, 15.0
     elif base <= 4664.68:
-        return base * 0.225 - 662.77
+        return base * 0.225 - 662.77, 22.5
     else:
-        return base * 0.275 - 896.00
+        return base * 0.275 - 896.00, 27.5
 
 # ===============================
-# CÁLCULO LEGAL
+# CÁLCULO 2026 – LEGAL
 # ===============================
 base_legal = rendimento - inss - (dependentes * DEDUCAO_DEP)
-ir_legal = calcular_ir(base_legal)
+ir_legal, aliquota_legal = calcular_ir(base_legal)
+reducao_legal = 113.18 if base_legal <= 2826.65 else 0.0
+ir_legal_final = max(ir_legal - reducao_legal, 0)
 
 # ===============================
-# CÁLCULO SIMPLIFICADO
+# CÁLCULO 2026 – SIMPLIFICADO
 # ===============================
 desconto_simplificado = min(rendimento * 0.20, 528.00)
-base_simplificado = rendimento - desconto_simplificado
-ir_simplificado = calcular_ir(base_simplificado)
+base_simpl = rendimento - desconto_simplificado
+ir_simpl, aliquota_simpl = calcular_ir(base_simpl)
 
 # ===============================
 # ESCOLHA AUTOMÁTICA
 # ===============================
-if ir_legal <= ir_simplificado:
+if ir_legal_final <= ir_simpl:
     metodo = "LEGAL"
-    ir_final = ir_legal
     base_final = base_legal
-    reducao = 113.18 if base_final <= 2826.65 else 0.0
+    ir_final = ir_legal_final
+    aliquota = aliquota_legal
 else:
     metodo = "SIMPLIFICADO"
-    ir_final = ir_simplificado
-    base_final = base_simplificado
-    reducao = 0.0
-
-ir_recolher = max(ir_final - reducao, 0)
+    base_final = base_simpl
+    ir_final = ir_simpl
+    aliquota = aliquota_simpl
+    reducao_legal = 0.0
 
 # ===============================
-# RESULTADO
+# ALÍQUOTA EFETIVA
 # ===============================
-st.subheader("📊 Resultado do Cálculo")
-st.write(f"**Método escolhido automaticamente:** {metodo}")
+aliquota_efetiva = (ir_final / rendimento * 100) if rendimento > 0 else 0
+
+# ===============================
+# CÁLCULO 2025 (SEM LEI 15.270)
+# ===============================
+ir_2025, _ = calcular_ir(base_legal)
+
+# ===============================
+# RESULTADOS
+# ===============================
+st.subheader("📊 Resultado do Cálculo – 2026")
+
+st.write(f"**Método escolhido:** {metodo}")
 st.write(f"Base de cálculo: R$ {base_final:,.2f}")
-st.write(f"IR apurado: R$ {ir_final:,.2f}")
-st.write(f"Redução Lei 15.270: R$ {reducao:,.2f}")
+st.write(f"Alíquota da faixa: {aliquota:.1f}%")
+st.write(f"Alíquota efetiva: {aliquota_efetiva:.2f}%")
 
 st.markdown(f"""
 <div class="resultado">
-<b>IR a recolher:</b> R$ {ir_recolher:,.2f}
+<b>IR a recolher (2026):</b> R$ {ir_final:,.2f}
 </div>
 """, unsafe_allow_html=True)
 
 # ===============================
-# GERAR PDF
+# COMPARAÇÃO 2025 x 2026
 # ===============================
-if st.button("📄 Gerar PDF do Cálculo"):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        c = canvas.Canvas(tmp.name, pagesize=A4)
-        largura, altura = A4
+diferenca = ir_2025 - ir_final
 
-        logo_path = "logo_atual.png"
-        if os.path.exists(logo_path):
-            c.drawImage(logo_path, 2*cm, altura-4*cm, width=6*cm, preserveAspectRatio=True)
-
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(2*cm, altura-5*cm, "Cálculo IRPF Mensal – 2026")
-
-        c.setFont("Helvetica", 11)
-        y = altura - 7*cm
-        linhas = [
-            f"Rendimento Bruto: R$ {rendimento:,.2f}",
-            f"INSS: R$ {inss:,.2f}",
-            f"Dependentes: {dependentes}",
-            f"Método escolhido: {metodo}",
-            f"Base de cálculo: R$ {base_final:,.2f}",
-            f"IR apurado: R$ {ir_final:,.2f}",
-            f"Redução Lei 15.270: R$ {reducao:,.2f}",
-            f"IR a recolher: R$ {ir_recolher:,.2f}",
-            f"Data do cálculo: {datetime.now().strftime('%d/%m/%Y')}"
-        ]
-
-        for linha in linhas:
-            c.drawString(2*cm, y, linha)
-            y -= 1*cm
-
-        c.setFont("Helvetica-Oblique", 9)
-        c.drawString(2*cm, 2*cm, "Uso interno – Atual Assessoria Contábil e Gerencial")
-
-        c.save()
-
-        st.download_button(
-            label="📥 Baixar PDF",
-            data=open(tmp.name, "rb"),
-            file_name="Calculo_IRPF_2026.pdf"
-        )
+st.subheader("📉 Comparativo com 2025")
+st.markdown(f"""
+<div class="comparacao">
+IR pelo critério 2025: R$ {ir_2025:,.2f}<br>
+IR pelo critério 2026: R$ {ir_final:,.2f}<br>
+<b>Diferença:</b> R$ {diferenca:,.2f}
+</div>
+""", unsafe_allow_html=True)
 
 # ===============================
 # RODAPÉ
